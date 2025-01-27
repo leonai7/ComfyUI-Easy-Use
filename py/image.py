@@ -43,6 +43,34 @@ class imageCount:
   def get_count(self, images):
     return (images.size(0),)
 
+class imagesCountInDirectory:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+        "required": {
+            "directory": ("STRING",),
+          "start_index": ("INT", {"default": 0, "min": 0, "step": 1}),
+          "limit": ("INT", {"default": -1, "min": -1, "max": 10000}),
+        }
+      }
+
+    CATEGORY = "EasyUse/Image"
+
+    RETURN_TYPES = ("INT",)
+    RETURN_NAMES = ("count",)
+    FUNCTION = "get_count"
+
+    def get_count(self, directory, start_index, limit, **kwargs):
+      dir_files = os.listdir(directory)
+      valid_extensions = ['.jpg', '.jpeg', '.png', '.webp']
+      dir_files = [f for f in dir_files if any(f.lower().endswith(ext) for ext in valid_extensions)]
+      if limit == -1:
+        files_length = len(dir_files)
+        total = files_length - start_index if start_index > 0 else files_length
+      else:
+        total = limit
+      return (total,)
+
 # 图像裁切
 class imageInsetCrop:
 
@@ -1618,10 +1646,10 @@ class loadImageBase64:
       "required": {
         "base64_data": ("STRING", {"default": ""}),
         "image_output": (["Hide", "Preview", "Save", "Hide/Save"], {"default": "Preview"}),
-        "save_prefix": ("STRING", {"default": "ComfyUI"}),
+        "save_prefix": ("STRING", {"default": "image"}),
       },
       "optional": {
-
+        "jpg_quality": ("INT", {"default": 50, "min": 1, "max": 100}),
       },
       "hidden": {"prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"},
     }
@@ -1636,7 +1664,7 @@ class loadImageBase64:
       return cv2.cvtColor(image, cv2.COLOR_BGRA2RGB)
     return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-  def load_image(self, base64_data, image_output, save_prefix, prompt=None, extra_pnginfo=None):
+  def load_image(self, base64_data, image_output, save_prefix, jpg_quality=50, prompt=None, extra_pnginfo=None):
     nparr = np.frombuffer(base64.b64decode(base64_data), np.uint8)
 
     result = cv2.imdecode(nparr, cv2.IMREAD_UNCHANGED)
@@ -1651,7 +1679,18 @@ class loadImageBase64:
     result = result.astype(np.float32) / 255.0
     new_images = torch.from_numpy(result)[None,]
 
-    results = easySave(new_images, save_prefix, image_output, None, None)
+    if image_output in ("Preview", "Save", "Hide/Save"):
+      output_dir = folder_paths.get_output_directory()
+      output_path = os.path.join(output_dir, f"{save_prefix}.jpg")
+      
+      i = 255. * new_images[0].cpu().numpy()
+      img = Image.fromarray(np.clip(i, 0, 255).astype(np.uint8))
+      img.save(output_path, 'JPEG', quality=jpg_quality)
+      
+      results = [{"filename": f"{save_prefix}.jpg", "subfolder": "", "type": "output"}]
+    else:
+      results = []
+
     mask = mask.unsqueeze(0)
 
     if image_output in ("Hide", "Hide/Save"):
@@ -1767,8 +1806,10 @@ class loadImagesForLoop:
   CATEGORY = "image"
 
   def load_images(self, directory: str, start_index: int = 0, limit: int =-1, prompt=None, extra_pnginfo=None, unique_id=None, **kwargs):
+    print(directory)
     if not os.path.isdir(directory):
       raise FileNotFoundError(f"Directory '{directory}' cannot be found.")
+
     dir_files = os.listdir(directory)
     if len(dir_files) == 0:
       raise FileNotFoundError(f"No files in directory '{directory}'.")
@@ -2034,6 +2075,7 @@ class makeImageForICRepaint:
 NODE_CLASS_MAPPINGS = {
   "easy imageInsetCrop": imageInsetCrop,
   "easy imageCount": imageCount,
+  "easy imagesCountInDirectory": imagesCountInDirectory,
   "easy imageSize": imageSize,
   "easy imageSizeBySide": imageSizeBySide,
   "easy imageSizeByLongerSide": imageSizeByLongerSide,
@@ -2072,6 +2114,7 @@ NODE_CLASS_MAPPINGS = {
 NODE_DISPLAY_NAME_MAPPINGS = {
   "easy imageInsetCrop": "ImageInsetCrop",
   "easy imageCount": "ImageCount",
+  "easy imagesCountInDirectory": "imagesCountInDirectory",
   "easy imageSize": "ImageSize",
   "easy imageSizeBySide": "ImageSize (Side)",
   "easy imageSizeByLongerSide": "ImageSize (LongerSide)",
